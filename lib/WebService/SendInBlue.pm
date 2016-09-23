@@ -7,6 +7,7 @@ use HTTP::Request;
 use LWP::UserAgent;
 use JSON;
 use Data::Dumper;
+use IO::Socket::INET;
 
 # ABSTRACT: Perl API to SendInBlue rest api
 
@@ -36,10 +37,41 @@ sub campaign_recipients {
     return $self->_make_request(sprintf("campaign/%s/recipients", $campaign_id), 'POST', params => \%params);
 }
 
-sub campaign_recipients_file_url {
+sub campaign_recipients_file_url{
+    my ($self, $campaign_id, $type) = @_;
+
     my $ua = new LWP::UserAgent();
-    my $ip = $ua->get('http://bot.whatismyipaddress.com/')->content;
+    my $ip = $ua->get('http://ipv4bot.whatismyipaddress.com/')->content;
+
+    my $socket = IO::Socket::INET->new(
+	LocalHost => "0.0.0.0", 
+        LocalPort => "2888",
+	Proto     => "tcp",
+        Listen    => 15,
+        Timeout   => 600,
+        Reuse     => 1,
+    ) || die "$@";
     
+    my $req = $self->campaign_recipients( $campaign_id, "http://$ip:2888", $type );
+    return $req unless $req->{'code'} eq 'success';
+    
+    my $client_socket = $socket->accept();
+    my $client_address = $client_socket->peerhost();
+    my $client_port = $client_socket->peerport();
+
+    #print "connection from $client_address:$client_port\n";
+
+    my @recv_data = $socket->getlines();
+    #print STDERR "**** @recv_data ****\n";
+
+    my $buf;
+    $socket->recv($buf, 1024);
+    my $message = "";
+    while (length($buf) > 0) {
+     $message .= $buf;
+     $socket->recv($buf, 1024, MSG_DONTWAIT);
+    }
+    #print STDERR "*** $message ****";
 }
 
 sub smtp_statistics {
@@ -66,14 +98,15 @@ sub _make_request {
         $req->content(encode_json($args{'params'}));
     }
 
-    print STDERR Dumper($req->as_string);
+    #print STDERR Dumper($req->as_string);
 
     my $resp = $self->ua->request($req);
 
-    print STDERR Dumper($resp->content);
+    #print STDERR Dumper($resp->content);
     my $json = decode_json($resp->content());
 
-    print STDERR Dumper($json);
+    #print STDERR Dumper($json);
+    return $json;
 }
 
 sub ua {
