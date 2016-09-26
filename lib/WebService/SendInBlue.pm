@@ -21,6 +21,20 @@ sub new {
     return bless { api_key => $args{'api_key'} }, $class;
 }
 
+sub lists {
+    my ($self, %args) = @_;
+
+    return $self->_make_request("list", 'GET', params => \%args);
+} 
+
+sub lists_users {
+    my ($self, %args) = @_;
+
+    $args{'listids'} = delete $args{'lists_ids'};
+
+    return $self->_make_request("list/display", 'POST', params => \%args);
+} 
+
 sub campaigns {
     my ($self, %args) = @_;
     return $self->_make_request("campaign/detailsv2", 'GET', params => \%args);
@@ -97,8 +111,6 @@ sub _make_request {
     if ( $args{'params'} ) {
         $req->content(encode_json($args{'params'}));
     }
-
-    #print STDERR Dumper($req->as_string);
 
     my $resp = $self->ua->request($req);
 
