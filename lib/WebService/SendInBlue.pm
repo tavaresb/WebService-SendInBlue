@@ -8,6 +8,7 @@ use LWP::UserAgent;
 use JSON;
 use Data::Dumper;
 use IO::Socket::INET;
+use URI::Query;
 
 # ABSTRACT: Perl API to SendInBlue rest api
 
@@ -18,7 +19,9 @@ sub new {
 
     die "api_key is mandatory" unless $args{'api_key'};
 
-    return bless { api_key => $args{'api_key'} }, $class;
+    my $debug = $args{'debug'} || $ENV{'SENDINBLUE_DEBUG'} || 0;
+
+    return bless { api_key => $args{'api_key'}, debug => $debug }, $class;
 }
 
 sub lists {
@@ -54,38 +57,41 @@ sub campaign_recipients {
 sub campaign_recipients_file_url{
     my ($self, $campaign_id, $type) = @_;
 
-    my $ua = new LWP::UserAgent();
-    my $ip = $ua->get('http://ipv4bot.whatismyipaddress.com/')->content;
+    my $inbox = $self->ua->post("http://api.webhookinbox.com/create/");
+    die "Inbox request failed" unless $inbox->is_success;
 
-    my $socket = IO::Socket::INET->new(
-	LocalHost => "0.0.0.0", 
-        LocalPort => "2888",
-	Proto     => "tcp",
-        Listen    => 15,
-        Timeout   => 600,
-        Reuse     => 1,
-    ) || die "$@";
-    
-    my $req = $self->campaign_recipients( $campaign_id, "http://$ip:2888", $type );
+    $self->log($inbox->decoded_content);
+    sleep(1);
+
+    my $inbox_data = decode_json($inbox->decoded_content);
+    my $inbox_url  = $inbox_data->{'base_url'};
+
+    my $req = $self->campaign_recipients( $campaign_id, $inbox_url."/in/", $type );
     return $req unless $req->{'code'} eq 'success';
-    
-    my $client_socket = $socket->accept();
-    my $client_address = $client_socket->peerhost();
-    my $client_port = $client_socket->peerport();
 
-    #print "connection from $client_address:$client_port\n";
+    my $process_id = $req->{'data'}->{'process_id'};
 
-    my @recv_data = $socket->getlines();
-    #print STDERR "**** @recv_data ****\n";
+    my $max_wait = 10;
+    for (my $i=0; $i <= $max_wait; $i++) {
+        # Get inbox items
+        my $items = $self->ua->get($inbox_url."/items/?order=-created&max=20");
+        die "Inbox request failed" unless $items->is_success;
 
-    my $buf;
-    $socket->recv($buf, 1024);
-    my $message = "";
-    while (length($buf) > 0) {
-     $message .= $buf;
-     $socket->recv($buf, 1024, MSG_DONTWAIT);
+        $self->log($items->decoded_content);
+
+        my $items_data = decode_json($items->decoded_content);
+        for my $i (@{$items_data->{'items'}}) {
+            my %data = URI::Query->new($i->{'body'})->hash;
+            $self->log(Dumper(\%data));
+
+            next unless $data{'proc_success'} == $process_id;
+
+            return { 'code' => 'success', 'data' => $data{'url'} }; 
+        }
+
+        sleep(10);
     }
-    #print STDERR "*** $message ****";
+    die "Unable to wait more for the export file url";
 }
 
 sub smtp_statistics {
@@ -110,14 +116,16 @@ sub _make_request {
 
     if ( $args{'params'} ) {
         $req->content(encode_json($args{'params'}));
+        $self->log(encode_json($args{'params'}));
     }
 
     my $resp = $self->ua->request($req);
 
-    #print STDERR Dumper($resp->content);
+    $self->log(Dumper($resp->content));
+
     my $json = decode_json($resp->content());
 
-    #print STDERR Dumper($json);
+    $self->log(Dumper($json));
     return $json;
 }
 
@@ -125,6 +133,14 @@ sub ua {
     my $self = shift;
 
     return LWP::UserAgent->new();
+}
+
+sub log {
+    my ($self, $line) = @_;
+
+    return unless $self->{'debug'};
+
+    print STDERR "[".ref($self)."] $line\n";
 }
 
 1;

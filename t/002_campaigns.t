@@ -1,4 +1,4 @@
-use Test::More tests => 2;
+use Test::More tests => 3;
 use Test::Exception;
 use IO::Socket::INET;
 use LWP::UserAgent;
@@ -10,8 +10,9 @@ SKIP: {
 
   my $a = WebService::SendInBlue->new('api_key'=> $ENV{'SENDINBLUE_API_KEY'});
 
-  $campaigns_list = $a->campaigns();
+  my $campaigns_list = $a->campaigns();
+  ok($campaigns_list->{'code'} eq 'success', "Get campaigns list");
   
-  $a->campaign_recipients_file_url($campaigns_list->{'data'}{'campaign_records'}[-1]{'id'}, 'all');
-
+  my $file_url = $a->campaign_recipients_file_url($campaigns_list->{'data'}{'campaign_records'}[-1]{'id'}, 'all');
+  ok($file_url->{'code'} eq 'success', "Get file url");
 }
