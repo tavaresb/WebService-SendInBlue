@@ -11,8 +11,8 @@ SKIP: {
   my $a = WebService::SendInBlue->new('api_key'=> $ENV{'SENDINBLUE_API_KEY'});
 
   my $campaigns_list = $a->campaigns();
-  ok($campaigns_list->{'code'} eq 'success', "Get campaigns list");
+  ok($campaigns_list->is_success == 1, "Get campaigns list");
   
-  my $file_url = $a->campaign_recipients_file_url($campaigns_list->{'data'}{'campaign_records'}[-1]{'id'}, 'all');
+  my $file_url = $a->campaign_recipients_file_url($campaigns_list->data->{'campaign_records'}[-1]{'id'}, 'all');
   ok($file_url->{'code'} eq 'success', "Get file url");
 }
